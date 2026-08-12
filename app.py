@@ -76,7 +76,7 @@ def get_download_icon(ruta):
 # ==========================================
 # 4. CONFIGURACIÓN DE PÁGINA Y DISEÑO URBANO
 # ==========================================
-st.set_page_config(page_title="SICER IA v9.0", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="SICER IA v9.1", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
@@ -481,8 +481,6 @@ def limpiar_nombre(nombre): return re.sub(r'[^a-zA-Z0-9]', '', str(nombre)).uppe
 def obtener_ruta_logo(n): return os.path.join(os.getcwd(), f"logo_{limpiar_nombre(n)}.png")
 def obtener_ruta_fuente(n): return os.path.join(os.getcwd(), f"fuente_{limpiar_nombre(n)}.ttf")
 def obtener_ruta_firma_legacy(n): return os.path.join(os.getcwd(), f"firma_{limpiar_nombre(n)}.png")
-
-# RESTAURACIÓN A PDF PARA AHORRAR ESPACIO
 def obtener_ruta_plantilla(n): return os.path.join(os.getcwd(), f"plantilla_{limpiar_nombre(n)}.pdf")
 
 def obtener_imagen_html(ruta_imagen, altura_px=100):
@@ -594,7 +592,7 @@ def modal_alerta_ruc(solicitud_id, comp_leido):
         if st.button("Entendido", type="primary", use_container_width=True): st.rerun()
 
 # ==========================================
-# 8. FUNCIÓN PDF SEGURA (SIN SALTOS Y CON PYPDF)
+# 8. FUNCIÓN PDF SEGURA 
 # ==========================================
 def render_texto_seguro(pdf, texto, align_code, font_name, font_size, line_height=5):
     pdf.set_font(font_name, '', font_size)
@@ -604,17 +602,12 @@ def render_texto_seguro(pdf, texto, align_code, font_name, font_size, line_heigh
 def generar_pdf(empresa_emisora, ruc_emisor, cliente, ruc, comprobante, vendedor, ciudad, props_dinamicas, cantidad, carac_18, msg_final, num_cert, incluir_proteccion, texto_proteccion):
     pdf = CustomPDF()
     pdf.add_page()
-    
-    # REPARACIÓN CRÍTICA: Desactivar el salto automático que causaba la página en blanco.
     pdf.set_auto_page_break(auto=False)
     
     fuentes_agregadas = [] 
     ruta_plantilla = obtener_ruta_plantilla(empresa_emisora)
     usar_plantilla = os.path.exists(ruta_plantilla)
 
-    # ---------------------------------------------------------
-    # 1. MARCA DE AGUA
-    # ---------------------------------------------------------
     pdf.set_font("Arial", 'B', 28)
     pdf.set_text_color(225, 225, 225) 
     marca_agua = f"CERTIFICADO {num_cert}"
@@ -627,14 +620,10 @@ def generar_pdf(empresa_emisora, ruc_emisor, cliente, ruc, comprobante, vendedor
     
     pdf.set_xy(10, 15)
     
-    # --- 2. LOGO ---
     ruta_logo = obtener_ruta_logo(empresa_emisora)
     if os.path.exists(ruta_logo): 
         pdf.image(ruta_logo, x=10, y=10, h=18) 
     
-    # ---------------------------------------------------------
-    # 3. QR SOLUCIONADO
-    # ---------------------------------------------------------
     qr_data = f"CERT: {num_cert} | COMP: {comprobante} | RUC: {ruc_emisor}"
     qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=2)
     qr.add_data(qr_data)
@@ -642,15 +631,14 @@ def generar_pdf(empresa_emisora, ruc_emisor, cliente, ruc, comprobante, vendedor
     
     img_qr = qr.make_image(fill_color="black", back_color="white").convert('RGB')
     qr_temp_id = uuid.uuid4().hex
-    qr_path = f"temp_qr_{qr_temp_id}.png" 
+    qr_path = f"temp_qr_{qr_temp_id}.jpg" 
     
     try:
-        img_qr.save(qr_path, format="PNG")
+        img_qr.save(qr_path, format="JPEG", quality=90)
         pdf.image(qr_path, x=175, y=12, w=28) 
         
         pdf.set_font("Arial", 'B', 15)
         
-        # Ajuste de espacio vertical
         if os.path.exists(ruta_logo): 
             pdf.ln(12)
         else:
@@ -661,10 +649,9 @@ def generar_pdf(empresa_emisora, ruc_emisor, cliente, ruc, comprobante, vendedor
             pdf.set_font("Arial", '', 11)
             pdf.cell(0, 6, f"RUC: {ruc_emisor}", ln=True, align='C')
             pdf.ln(6)
+        else:
+            pdf.ln(10)
             
-        # ---------------------------------------------------------
-        # 4. TÍTULO CENTRAL
-        # ---------------------------------------------------------
         pdf.set_font("Arial", 'B', 14)
         pdf.cell(0, 6, "CERTIFICADO DE CALIDAD", ln=True, align='C')
         pdf.ln(6)
@@ -768,11 +755,15 @@ def generar_pdf(empresa_emisora, ruc_emisor, cliente, ruc, comprobante, vendedor
         ciudad_final_pdf = ciudad if ciudad and str(ciudad).strip() != "" else "Jaén"
         pdf.cell(0, 6, f"{ciudad_final_pdf} - Certificado {num_cert} - Fecha: {fecha_actual}", ln=True, align='R')
         
-        pdf_bytes = pdf.output(dest='S').encode('latin-1', 'ignore')
+        # ---------------------------------------------------------
+        # COMPATIBILIDAD ABSOLUTA DE BYTES (FPDF1 y FPDF2)
+        # ---------------------------------------------------------
+        res = pdf.output(dest='S')
+        if isinstance(res, str):
+            pdf_bytes = res.encode('latin-1', 'ignore')
+        else:
+            pdf_bytes = bytes(res)
             
-        # ---------------------------------------------------------
-        # FUSIÓN RÁPIDA DE PLANTILLA PDF
-        # ---------------------------------------------------------
         if usar_plantilla:
             try:
                 template_reader = PdfReader(ruta_plantilla)
@@ -998,7 +989,7 @@ def tab_emision():
                                 ciudad_final_gen = dir_full.split(",")[0].strip() if "," in dir_full else dir_full.strip()
                                 break
                         
-                        with st.spinner("Construyendo documento seguro en la nube..."):
+                        with st.spinner("Construyendo documento seguro..."):
                             pdf_bytes = generar_pdf(
                                 st.session_state.datos_form["empresa"], st.session_state.datos_form["ruc_emisor"], 
                                 st.session_state.datos_form["cliente"], st.session_state.datos_form["ruc"], 
@@ -1120,9 +1111,6 @@ def tab_configuracion_diseno():
                         st.rerun()
                         
             with c_img2:
-                # ---------------------------------------------------------
-                # DISEÑO COMPACTO Y RETORNO A PDF PARA AHORRO DE ESPACIO
-                # ---------------------------------------------------------
                 st.markdown("<p style='font-weight:600; color:#4E008E; margin-bottom:15px; font-size:0.85rem; letter-spacing:0.5px;'>PLANTILLA FONDO (.PDF)</p>", unsafe_allow_html=True)
                 ruta_p = obtener_ruta_plantilla(emp_visual)
                 if os.path.exists(ruta_p):
@@ -1387,7 +1375,6 @@ def tab_historial_general():
         if len(historial_filtrado) > 0:
             is_admin = (st.session_state.rol == "administrador")
             
-            # SIMETRÍA PERFECTA: Doc y Acción ocupan el mismo ancho exacto (1.0)
             if is_admin:
                 c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.5, 2.5, 2, 2.5, 1.5, 1.5, 1.0, 1.0])
                 c8.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px; display:block; text-align:center;'>ACCIÓN</span>", unsafe_allow_html=True)
@@ -1423,7 +1410,6 @@ def tab_historial_general():
                     c7.markdown("<div style='text-align:center;'><span style='color:#EF4444; font-size:0.85rem;'>N/A</span></div>", unsafe_allow_html=True)
                     
                 if is_admin:
-                    # NUEVO: Botón basurero con Tooltip nativo
                     if c8.button("🗑️", key=f"del_cert_{cert['N_Cert']}", help="Eliminar certificado", use_container_width=True):
                         st.session_state.historial_db = [c for c in st.session_state.historial_db if c['N_Cert'] != cert['N_Cert']]
                         guardar_historial(st.session_state.historial_db)
@@ -1672,7 +1658,7 @@ def vista_verificacion_publica():
 if not st.session_state.logueado:
     st.markdown("""
         <div class="top-navbar-bg"></div>
-        <div class="navbar-logo">SICER <span>IA v9.0</span></div>
+        <div class="navbar-logo">SICER <span>IA v9.1</span></div>
     """, unsafe_allow_html=True)
     
     if st.session_state.get('modo_vista', 'login') == 'login':
@@ -1684,7 +1670,7 @@ if not st.session_state.logueado:
             st.markdown("""
                 <div style='text-align: center; margin-bottom: 30px;'>
                     <h1 style='color: #1E293B; font-weight: 900; font-style: italic; font-size: 3.5rem; letter-spacing: -1.5px; margin:0;'>
-                        SICER <span style='background: linear-gradient(135deg, #4E008E 0%, #6A0DAD 100%); color: white; padding: 4px 15px; border-radius: 99px; font-size: 1.4rem; font-style: normal; vertical-align: middle; margin-left:10px;'>IA v9.0</span>
+                        SICER <span style='background: linear-gradient(135deg, #4E008E 0%, #6A0DAD 100%); color: white; padding: 4px 15px; border-radius: 99px; font-size: 1.4rem; font-style: normal; vertical-align: middle; margin-left:10px;'>IA v9.1</span>
                     </h1>
                     <p style='color: #64748B; font-size: 1.1rem; margin-top: 10px; font-weight: 500;'>Sistema Inteligente de Certificados</p>
                 </div>
@@ -1733,7 +1719,7 @@ if not st.session_state.logueado:
 else:
     st.markdown("""
         <div class="top-navbar-bg"></div>
-        <div class="navbar-logo">SICER <span>IA v9.0</span></div>
+        <div class="navbar-logo">SICER <span>IA v9.1</span></div>
     """, unsafe_allow_html=True)
     
     st.markdown('<span class="logout-anchor"></span>', unsafe_allow_html=True)
