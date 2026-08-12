@@ -5,4 +5,5 @@ google-generativeai
 Pillow
 qrcode
 firebase-admin
+pypdf2
 pypdf
