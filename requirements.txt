@@ -1,7 +1,0 @@
-streamlit
-pandas
-fpdf2
-google-generativeai
-Pillow
-qrcode
-firebase-admin
