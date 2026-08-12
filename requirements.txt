@@ -1,0 +1,8 @@
+streamlit
+pandas
+fpdf
+google-generativeai
+Pillow
+qrcode
+firebase-admin
+pypdf
