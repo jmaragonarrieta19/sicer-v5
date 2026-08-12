@@ -56,10 +56,26 @@ def section_header(icon, title):
         </div>
     """, unsafe_allow_html=True)
 
+# NUEVO: Generador de Icono de Descarga Moderno en Base64
+def get_download_icon(ruta):
+    with open(ruta, "rb") as f:
+        b64_pdf = base64.b64encode(f.read()).decode('utf-8')
+    file_n = os.path.basename(ruta)
+    return f'''
+    <a href="data:application/pdf;base64,{b64_pdf}" download="{file_n}" title="Descargar Certificado"
+       style="display: inline-flex; align-items: center; justify-content: center; background-color: #10B981; color: white; width: 36px; height: 36px; border-radius: 8px; text-decoration: none; transition: all 0.2s; box-shadow: 0 2px 4px rgba(16,185,129,0.3);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+    </a>
+    '''
+
 # ==========================================
 # 4. CONFIGURACIÓN DE PÁGINA Y DISEÑO URBANO
 # ==========================================
-st.set_page_config(page_title="SICER IA v6.1", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="SICER IA v7.0", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
@@ -256,8 +272,7 @@ st.markdown("""
     
     button[kind="primary"], 
     .stButton > button[kind="primary"], 
-    div[data-testid="stFormSubmitButton"] > button,
-    div[data-testid="stDownloadButton"] > button {
+    div[data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, #4E008E 0%, #6A0DAD 100%) !important;
         border: none !important;
         color: #ffffff !important;
@@ -269,15 +284,13 @@ st.markdown("""
         min-height: 42px !important;
     }
     button[kind="primary"] *, 
-    div[data-testid="stFormSubmitButton"] > button *,
-    div[data-testid="stDownloadButton"] > button * {
+    div[data-testid="stFormSubmitButton"] > button * {
         color: #ffffff !important;
         margin: 0 !important;
         white-space: nowrap !important;
     }
     button[kind="primary"]:hover, 
-    div[data-testid="stFormSubmitButton"] > button:hover,
-    div[data-testid="stDownloadButton"] > button:hover {
+    div[data-testid="stFormSubmitButton"] > button:hover {
         box-shadow: 0 6px 20px rgba(78, 0, 142, 0.4) !important;
         transform: translateY(-2px);
     }
@@ -620,20 +633,18 @@ def generar_pdf(empresa_emisora, ruc_emisor, cliente, ruc, comprobante, vendedor
     
     # ---------------------------------------------------------
     # 3. QR SOLUCIONADO PARA LECTORES DE CELULAR
-    # El secreto: Formato JPEG y conversión obligatoria a RGB para FPDF
     # ---------------------------------------------------------
     qr_data = f"CERT: {num_cert} | COMP: {comprobante} | RUC: {ruc_emisor}"
     qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=2)
     qr.add_data(qr_data)
     qr.make(fit=True)
     
-    # CRÍTICO: .convert('RGB') evita que FPDF lea un cuadro negro o corrupto
     img_qr = qr.make_image(fill_color="black", back_color="white").convert('RGB')
     qr_temp_id = uuid.uuid4().hex
     qr_path = f"temp_qr_{qr_temp_id}.jpg" 
     
     try:
-        img_qr.save(qr_path, format="JPEG", quality=100)
+        img_qr.save(qr_path, format="JPEG", quality=90, optimize=True)
         pdf.image(qr_path, x=175, y=12, w=28) 
         
         pdf.set_font("Arial", 'B', 15)
@@ -756,7 +767,10 @@ def generar_pdf(empresa_emisora, ruc_emisor, cliente, ruc, comprobante, vendedor
         ciudad_final_pdf = ciudad if ciudad and str(ciudad).strip() != "" else "Jaén"
         pdf.cell(0, 6, f"{ciudad_final_pdf} - Certificado {num_cert} - Fecha: {fecha_actual}", ln=True, align='R')
         
-        pdf_bytes = pdf.output(dest='S').encode('latin-1', 'ignore')
+        try:
+            pdf_bytes = pdf.output(dest='S').encode('latin-1', 'ignore')
+        except AttributeError:
+            pdf_bytes = bytes(pdf.output())
                 
     finally:
         if os.path.exists(qr_path):
@@ -1014,9 +1028,23 @@ def tab_emision():
                             st.rerun()
 
         with col_dl:
+            # NUEVO: Botón de descarga visualmente modernizado con SVG
             if st.session_state.get('show_download', False) and st.session_state.ultimo_pdf_ruta and os.path.exists(st.session_state.ultimo_pdf_ruta):
                 with open(st.session_state.ultimo_pdf_ruta, "rb") as f:
-                    st.download_button("Descargar PDF", data=f.read(), file_name=os.path.basename(st.session_state.ultimo_pdf_ruta), mime="application/pdf", type="secondary", use_container_width=True)
+                    b64_pdf = base64.b64encode(f.read()).decode('utf-8')
+                    file_n = os.path.basename(st.session_state.ultimo_pdf_ruta)
+                    dl_link = f'''
+                    <a href="data:application/pdf;base64,{b64_pdf}" download="{file_n}" 
+                       style="display: flex; align-items: center; justify-content: center; gap: 10px; background: linear-gradient(135deg, #10B981 0%, #059669 100%); color: white; padding: 0.6rem 1.5rem; border-radius: 999px; text-decoration: none; font-weight: 600; box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4); transition: all 0.3s ease;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        DESCARGAR PDF
+                    </a>
+                    '''
+                    st.markdown(dl_link, unsafe_allow_html=True)
 
 def tab_configuracion_diseno():
     section_header(ICON_BUILDING, "Catálogo de Empresas")
@@ -1072,10 +1100,13 @@ def tab_configuracion_diseno():
                     st.markdown('<div style="height: 140px; display: flex; align-items: center; justify-content: center; border: 2px dashed #E2E8F0; border-radius: 12px; margin-bottom: 15px; color: #94A3B8;">Sin logo</div>', unsafe_allow_html=True)
                     file_l = st.file_uploader("Subir logo", type=["png", "jpg"], key="ul_btn", label_visibility="collapsed")
                     if file_l and st.button("Guardar Logo", key="sl_btn", type="primary", use_container_width=True):
-                        with open(ruta_l, "wb") as f: f.write(file_l.getbuffer())
+                        img = Image.open(file_l)
+                        img.thumbnail((600, 600), Image.Resampling.LANCZOS)
+                        img.save(ruta_l, format=img.format)
                         st.rerun()
                         
             with c_img2:
+                # NUEVO: RECOMPRESIÓN FORZOSA DE PLANTILLAS A 150 DPI PARA EVITAR LENTITUD
                 st.markdown("<p style='font-weight:600; color:#4E008E; margin-bottom:15px; font-size:0.85rem; letter-spacing:0.5px;'>PLANTILLA FONDO (IMAGEN)</p>", unsafe_allow_html=True)
                 ruta_p = obtener_ruta_plantilla(emp_visual)
                 if os.path.exists(ruta_p):
@@ -1085,8 +1116,10 @@ def tab_configuracion_diseno():
                     st.markdown('<div style="height: 140px; display: flex; align-items: center; justify-content: center; border: 2px dashed #E2E8F0; border-radius: 12px; margin-bottom: 15px; color: #94A3B8; text-align:center;">Fondo en blanco<br>(Sube tu diseño A4 en JPG/PNG)</div>', unsafe_allow_html=True)
                     file_p = st.file_uploader("Subir diseño en IMAGEN (.jpg, .png)", type=["png", "jpg", "jpeg"], key="up_p_btn", label_visibility="collapsed")
                     if file_p and st.button("Guardar Plantilla", key="sp_p_btn", type="primary", use_container_width=True):
+                        # Compresión extrema de 0.5s garantizada
                         img = Image.open(file_p).convert("RGB")
-                        img.save(obtener_ruta_plantilla(emp_visual), "JPEG")
+                        img.thumbnail((1240, 1754), Image.Resampling.LANCZOS)
+                        img.save(obtener_ruta_plantilla(emp_visual), "JPEG", quality=80, optimize=True)
                         st.rerun()
                         
             with c_img3:
@@ -1323,11 +1356,12 @@ def tab_historial_general():
         if len(historial_filtrado) > 0:
             is_admin = (st.session_state.rol == "administrador")
             
+            # NUEVO: Ajuste de columnas para que el icono de descarga encaje perfectamente
             if is_admin:
-                c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.5, 2.5, 2, 3, 1.5, 1.5, 1.5, 1.5])
+                c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.5, 2.5, 2, 2.5, 1.5, 1.5, 1.0, 1.5])
                 c8.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>ACCIÓN</span>", unsafe_allow_html=True)
             else:
-                c1, c2, c3, c4, c5, c6, c7 = st.columns([1.5, 2.5, 2, 3, 1.5, 1.5, 1.5])
+                c1, c2, c3, c4, c5, c6, c7 = st.columns([1.5, 2.5, 2, 2.5, 1.5, 1.5, 1.0])
                 
             c1.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>FECHA</span>", unsafe_allow_html=True)
             c2.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>EMPRESA</span>", unsafe_allow_html=True)
@@ -1335,14 +1369,14 @@ def tab_historial_general():
             c4.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>CLIENTE</span>", unsafe_allow_html=True)
             c5.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>VENDEDOR</span>", unsafe_allow_html=True)
             c6.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>EMISOR</span>", unsafe_allow_html=True)
-            c7.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>ARCHIVO</span>", unsafe_allow_html=True)
+            c7.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>DOC.</span>", unsafe_allow_html=True)
             st.markdown("<hr style='margin: 10px 0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
             
             for cert in reversed(historial_filtrado):
                 if is_admin:
-                    c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.5, 2.5, 2, 3, 1.5, 1.5, 1.5, 1.5], vertical_alignment="center")
+                    c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.5, 2.5, 2, 2.5, 1.5, 1.5, 1.0, 1.5], vertical_alignment="center")
                 else:
-                    c1, c2, c3, c4, c5, c6, c7 = st.columns([1.5, 2.5, 2, 3, 1.5, 1.5, 1.5], vertical_alignment="center")
+                    c1, c2, c3, c4, c5, c6, c7 = st.columns([1.5, 2.5, 2, 2.5, 1.5, 1.5, 1.0], vertical_alignment="center")
                     
                 c1.write(cert["Fecha"])
                 c2.write(cert.get("Empresa_Emisora", cert.get("Emisor", "")))
@@ -1353,18 +1387,10 @@ def tab_historial_general():
                 
                 ruta = cert.get("Ruta_PDF")
                 if ruta and os.path.exists(ruta):
-                    with open(ruta, "rb") as f:
-                        c7.download_button(
-                            label="Descargar", 
-                            data=f.read(), 
-                            file_name=os.path.basename(ruta), 
-                            mime="application/pdf", 
-                            key=f"dl_gen_{cert['N_Cert']}",
-                            type="secondary",
-                            use_container_width=True
-                        )
+                    # NUEVO: Uso de SVG interactivo en base64 en lugar de botón nativo
+                    c7.markdown(get_download_icon(ruta), unsafe_allow_html=True)
                 else:
-                    c7.markdown("<span style='color:#94A3B8;'>No disp.</span>", unsafe_allow_html=True)
+                    c7.markdown("<span style='color:#EF4444; font-size:0.85rem;'>N/A</span>", unsafe_allow_html=True)
                     
                 if is_admin:
                     if c8.button("Eliminar", key=f"del_cert_{cert['N_Cert']}", type="secondary", use_container_width=True):
@@ -1416,7 +1442,7 @@ def tab_historial_general():
                         
                 st.markdown("<hr style='margin: 8px 0; border-top: 1px solid #F1F5F9;'>", unsafe_allow_html=True)
         else:
-            st.info("No tienes solicitudes rechazadas en el historial.")
+            st.info("No hay solicitudes rechazadas en el historial.")
 
 def tab_solicitar_vendedor():
     section_header(ICON_DOC, "Solicitar Certificado")
@@ -1485,22 +1511,21 @@ def tab_historial_vendedor():
     with st.container(border=True):
         mis_certificados = [c for c in st.session_state.historial_db if c.get("Vendedor") == st.session_state.usuario_actual]
         if mis_certificados:
-            c1, c2, c3, c4 = st.columns([2, 3, 4, 3])
+            c1, c2, c3, c4 = st.columns([2, 3, 4, 1])
             c1.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>FECHA</span>", unsafe_allow_html=True)
             c2.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>COMPROBANTE</span>", unsafe_allow_html=True)
             c3.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>CLIENTE</span>", unsafe_allow_html=True)
-            c4.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>ACCIÓN</span>", unsafe_allow_html=True)
+            c4.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>DOC.</span>", unsafe_allow_html=True)
             st.markdown("<hr style='margin: 10px 0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
             
             for cert in reversed(mis_certificados):
-                c1, c2, c3, c4 = st.columns([2, 3, 4, 3], vertical_alignment="center")
+                c1, c2, c3, c4 = st.columns([2, 3, 4, 1], vertical_alignment="center")
                 c1.write(cert["Fecha"])
                 c2.write(cert["Comprobante"])
                 c3.write(cert["Cliente"])
                 ruta = cert.get("Ruta_PDF")
                 if ruta and os.path.exists(ruta):
-                    with open(ruta, "rb") as f:
-                        c4.download_button("Descargar", data=f.read(), file_name=os.path.basename(ruta), mime="application/pdf", key=f"dl_vend_{cert['N_Cert']}", type="secondary", use_container_width=True)
+                    c4.markdown(get_download_icon(ruta), unsafe_allow_html=True)
                 else:
                     c4.markdown("<span style='color:#94A3B8;'>No disp.</span>", unsafe_allow_html=True)
                 st.markdown("<hr style='margin: 8px 0; border-top: 1px solid #F1F5F9;'>", unsafe_allow_html=True)
@@ -1581,15 +1606,15 @@ def vista_verificacion_publica():
                     st.success("✅ ¡Certificado validado y encontrado con éxito!")
                     
                     st.markdown("<br>", unsafe_allow_html=True)
-                    c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([2, 2, 2, 3, 2])
+                    c_h1, c_h2, c_h3, c_h4, c_h5 = st.columns([2, 2, 2, 3, 1])
                     c_h1.markdown("<span style='color:#94A3B8; font-weight:700; font-size:0.8rem; letter-spacing:0.5px;'>N° CERTIFICADO</span>", unsafe_allow_html=True)
                     c_h2.markdown("<span style='color:#94A3B8; font-weight:700; font-size:0.8rem; letter-spacing:0.5px;'>FECHA EMISIÓN</span>", unsafe_allow_html=True)
                     c_h3.markdown("<span style='color:#94A3B8; font-weight:700; font-size:0.8rem; letter-spacing:0.5px;'>VENDEDOR</span>", unsafe_allow_html=True)
                     c_h4.markdown("<span style='color:#94A3B8; font-weight:700; font-size:0.8rem; letter-spacing:0.5px;'>EMPRESA</span>", unsafe_allow_html=True)
-                    c_h5.markdown("<span style='color:#94A3B8; font-weight:700; font-size:0.8rem; letter-spacing:0.5px;'>OPCIÓN</span>", unsafe_allow_html=True)
+                    c_h5.markdown("<span style='color:#94A3B8; font-weight:700; font-size:0.8rem; letter-spacing:0.5px;'>DOC.</span>", unsafe_allow_html=True)
                     st.markdown("<hr style='margin: 8px 0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
                     
-                    c_d1, c_d2, c_d3, c_d4, c_d5 = st.columns([2, 2, 2, 3, 2], vertical_alignment="center")
+                    c_d1, c_d2, c_d3, c_d4, c_d5 = st.columns([2, 2, 2, 3, 1], vertical_alignment="center")
                     c_d1.markdown(f"**{encontrado.get('N_Cert', '')}**")
                     c_d2.write(encontrado.get("Fecha", ""))
                     c_d3.write(encontrado.get("Vendedor", ""))
@@ -1597,8 +1622,7 @@ def vista_verificacion_publica():
                     
                     ruta = encontrado.get("Ruta_PDF")
                     if ruta and os.path.exists(ruta):
-                        with open(ruta, "rb") as f:
-                            c_d5.download_button("Descargar", data=f.read(), file_name=os.path.basename(ruta), mime="application/pdf", type="primary", use_container_width=True)
+                        c_d5.markdown(get_download_icon(ruta), unsafe_allow_html=True)
                     else:
                         c_d5.markdown("<span style='color:#EF4444; font-size:0.85rem;'>Archivo no disp.</span>", unsafe_allow_html=True)
                 else:
@@ -1617,7 +1641,7 @@ def vista_verificacion_publica():
 if not st.session_state.logueado:
     st.markdown("""
         <div class="top-navbar-bg"></div>
-        <div class="navbar-logo">SICER <span>IA v6.1</span></div>
+        <div class="navbar-logo">SICER <span>IA v7.0</span></div>
     """, unsafe_allow_html=True)
     
     if st.session_state.get('modo_vista', 'login') == 'login':
@@ -1629,7 +1653,7 @@ if not st.session_state.logueado:
             st.markdown("""
                 <div style='text-align: center; margin-bottom: 30px;'>
                     <h1 style='color: #1E293B; font-weight: 900; font-style: italic; font-size: 3.5rem; letter-spacing: -1.5px; margin:0;'>
-                        SICER <span style='background: linear-gradient(135deg, #4E008E 0%, #6A0DAD 100%); color: white; padding: 4px 15px; border-radius: 99px; font-size: 1.4rem; font-style: normal; vertical-align: middle; margin-left:10px;'>IA v6.1</span>
+                        SICER <span style='background: linear-gradient(135deg, #4E008E 0%, #6A0DAD 100%); color: white; padding: 4px 15px; border-radius: 99px; font-size: 1.4rem; font-style: normal; vertical-align: middle; margin-left:10px;'>IA v7.0</span>
                     </h1>
                     <p style='color: #64748B; font-size: 1.1rem; margin-top: 10px; font-weight: 500;'>Sistema Inteligente de Certificados</p>
                 </div>
@@ -1678,7 +1702,7 @@ if not st.session_state.logueado:
 else:
     st.markdown("""
         <div class="top-navbar-bg"></div>
-        <div class="navbar-logo">SICER <span>IA v6.1</span></div>
+        <div class="navbar-logo">SICER <span>IA v7.0</span></div>
     """, unsafe_allow_html=True)
     
     st.markdown('<span class="logout-anchor"></span>', unsafe_allow_html=True)
