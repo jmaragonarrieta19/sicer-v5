@@ -14,8 +14,6 @@ import json
 import qrcode
 import firebase_admin
 from firebase_admin import credentials, db
-import io
-from pypdf import PdfReader, PdfWriter
 
 # ==========================================
 # 1. DIRECTORIOS Y CONFIGURACIÓN IA
@@ -61,7 +59,7 @@ def section_header(icon, title):
 # ==========================================
 # 4. CONFIGURACIÓN DE PÁGINA Y DISEÑO URBANO
 # ==========================================
-st.set_page_config(page_title="SICER IA v5.5", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="SICER IA v6.1", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
 <style>
@@ -469,7 +467,9 @@ def limpiar_nombre(nombre): return re.sub(r'[^a-zA-Z0-9]', '', str(nombre)).uppe
 def obtener_ruta_logo(n): return os.path.join(os.getcwd(), f"logo_{limpiar_nombre(n)}.png")
 def obtener_ruta_fuente(n): return os.path.join(os.getcwd(), f"fuente_{limpiar_nombre(n)}.ttf")
 def obtener_ruta_firma_legacy(n): return os.path.join(os.getcwd(), f"firma_{limpiar_nombre(n)}.png")
-def obtener_ruta_plantilla(n): return os.path.join(os.getcwd(), f"plantilla_{limpiar_nombre(n)}.pdf")
+
+# La plantilla ahora es obligatoriamente JPG o PNG para máxima velocidad en la nube
+def obtener_ruta_plantilla(n): return os.path.join(os.getcwd(), f"plantilla_{limpiar_nombre(n)}.jpg")
 
 def obtener_imagen_html(ruta_imagen, altura_px=140):
     with open(ruta_imagen, "rb") as img_file:
@@ -580,7 +580,7 @@ def modal_alerta_ruc(solicitud_id, comp_leido):
         if st.button("Entendido", type="primary", use_container_width=True): st.rerun()
 
 # ==========================================
-# 8. FUNCIÓN PDF SEGURA (TÍTULO Y MARCA DE AGUA SIEMPRE VISIBLES)
+# 8. FUNCIÓN PDF SEGURA (QR SOLUCIONADO)
 # ==========================================
 def render_texto_seguro(pdf, texto, align_code, font_name, font_size, line_height=5):
     pdf.set_font(font_name, '', font_size)
@@ -593,10 +593,16 @@ def generar_pdf(empresa_emisora, ruc_emisor, cliente, ruc, comprobante, vendedor
     pdf.set_auto_page_break(auto=True, margin=15)
     fuentes_agregadas = [] 
     
+    # ---------------------------------------------------------
+    # DIBUJAR PLANTILLA COMO FONDO JPG (Milisegundos)
+    # ---------------------------------------------------------
     ruta_plantilla = obtener_ruta_plantilla(empresa_emisora)
-    usar_plantilla = os.path.exists(ruta_plantilla)
-    
-    # --- 1. MARCA DE AGUA (SIEMPRE SE DIBUJA) ---
+    if os.path.exists(ruta_plantilla):
+        pdf.image(ruta_plantilla, x=0, y=0, w=210, h=297)
+
+    # ---------------------------------------------------------
+    # 1. MARCA DE AGUA (Sobre la plantilla)
+    # ---------------------------------------------------------
     pdf.set_font("Arial", 'B', 28)
     pdf.set_text_color(225, 225, 225) 
     marca_agua = f"CERTIFICADO {num_cert}"
@@ -607,36 +613,46 @@ def generar_pdf(empresa_emisora, ruc_emisor, cliente, ruc, comprobante, vendedor
         pdf.stop_transform()
     pdf.set_text_color(0, 0, 0)
     
-    # --- 2. LOGO Y CABECERA ---
+    # --- 2. LOGO ---
     ruta_logo = obtener_ruta_logo(empresa_emisora)
     if os.path.exists(ruta_logo): 
         pdf.image(ruta_logo, x=10, y=10, h=18) 
     
-    # --- 3. QR OPTIMIZADO (FORMATO PNG + TEXTO LIMPIO MULTILINEA) ---
-    qr_data = f"CERTIFICADO: {num_cert}\nCOMPROBANTE: {comprobante}\nRUC: {ruc_emisor}\nEMPRESA: {empresa_emisora}"
-    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=2)
+    # ---------------------------------------------------------
+    # 3. QR SOLUCIONADO PARA LECTORES DE CELULAR
+    # El secreto: Formato JPEG y conversión obligatoria a RGB para FPDF
+    # ---------------------------------------------------------
+    qr_data = f"CERT: {num_cert} | COMP: {comprobante} | RUC: {ruc_emisor}"
+    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=2)
     qr.add_data(qr_data)
     qr.make(fit=True)
-    img_qr = qr.make_image(fill_color="black", back_color="white")
+    
+    # CRÍTICO: .convert('RGB') evita que FPDF lea un cuadro negro o corrupto
+    img_qr = qr.make_image(fill_color="black", back_color="white").convert('RGB')
     qr_temp_id = uuid.uuid4().hex
-    qr_path = f"temp_qr_{qr_temp_id}.png" 
+    qr_path = f"temp_qr_{qr_temp_id}.jpg" 
     
     try:
-        img_qr.save(qr_path, format="PNG")
-        pdf.image(qr_path, x=175, y=12, w=25) 
+        img_qr.save(qr_path, format="JPEG", quality=100)
+        pdf.image(qr_path, x=175, y=12, w=28) 
         
         pdf.set_font("Arial", 'B', 15)
         
-        if not usar_plantilla:
-            if os.path.exists(ruta_logo): pdf.ln(12) 
+        # Ajuste de espacio vertical
+        if os.path.exists(ruta_logo): 
+            pdf.ln(12)
+        else:
+            pdf.ln(25)
+            
+        if not os.path.exists(ruta_plantilla):
             pdf.cell(0, 6, empresa_emisora, ln=True, align='C')
             pdf.set_font("Arial", '', 11)
             pdf.cell(0, 6, f"RUC: {ruc_emisor}", ln=True, align='C')
             pdf.ln(6)
-        else:
-            pdf.ln(28) 
             
-        # --- 4. TÍTULO CENTRAL (SIEMPRE SE DIBUJA) ---
+        # ---------------------------------------------------------
+        # 4. TÍTULO CENTRAL
+        # ---------------------------------------------------------
         pdf.set_font("Arial", 'B', 14)
         pdf.cell(0, 6, "CERTIFICADO DE CALIDAD", ln=True, align='C')
         pdf.ln(6)
@@ -741,27 +757,6 @@ def generar_pdf(empresa_emisora, ruc_emisor, cliente, ruc, comprobante, vendedor
         pdf.cell(0, 6, f"{ciudad_final_pdf} - Certificado {num_cert} - Fecha: {fecha_actual}", ln=True, align='R')
         
         pdf_bytes = pdf.output(dest='S').encode('latin-1', 'ignore')
-        
-        if usar_plantilla:
-            try:
-                template_reader = PdfReader(ruta_plantilla)
-                overlay_reader = PdfReader(io.BytesIO(pdf_bytes))
-                writer = PdfWriter()
-                
-                for i in range(len(overlay_reader.pages)):
-                    overlay_page = overlay_reader.pages[i]
-                    if i < len(template_reader.pages):
-                        template_page = template_reader.pages[i]
-                        template_page.merge_page(overlay_page)
-                        writer.add_page(template_page)
-                    else:
-                        writer.add_page(overlay_page)
-                        
-                output_stream = io.BytesIO()
-                writer.write(output_stream)
-                pdf_bytes = output_stream.getvalue()
-            except Exception as e:
-                st.error(f"Error al combinar la plantilla PDF: {e}")
                 
     finally:
         if os.path.exists(qr_path):
@@ -974,7 +969,7 @@ def tab_emision():
                                 ciudad_final_gen = dir_full.split(",")[0].strip() if "," in dir_full else dir_full.strip()
                                 break
                         
-                        with st.spinner("Construyendo documento seguro (Si nota demoras, comprima su PDF de plantilla a menos de 500kb)..."):
+                        with st.spinner("Construyendo documento seguro..."):
                             pdf_bytes = generar_pdf(
                                 st.session_state.datos_form["empresa"], st.session_state.datos_form["ruc_emisor"], 
                                 st.session_state.datos_form["cliente"], st.session_state.datos_form["ruc"], 
@@ -991,11 +986,17 @@ def tab_emision():
                                 f.write(pdf_bytes)
                             
                             nuevo_registro = {
-                                "N_Cert": num_certificado, "Fecha": datetime.now().strftime("%d/%m/%Y"),
-                                "Emisor": st.session_state.datos_form["empresa"], "Cliente": st.session_state.datos_form["cliente"],
-                                "Documento": st.session_state.datos_form["ruc"], "Comprobante": comprobante_actual.upper(),
-                                "Vendedor": st.session_state.datos_form["vendedor"], "Ciudad": ciudad_final_gen, 
-                                "Estado": "Emitido", "Ruta_PDF": pdf_filepath
+                                "N_Cert": num_certificado, 
+                                "Fecha": datetime.now().strftime("%d/%m/%Y"),
+                                "Empresa_Emisora": st.session_state.datos_form["empresa"], 
+                                "Usuario_Emisor": st.session_state.usuario_actual,
+                                "Cliente": st.session_state.datos_form["cliente"],
+                                "Documento": st.session_state.datos_form["ruc"], 
+                                "Comprobante": comprobante_actual.upper(),
+                                "Vendedor": st.session_state.datos_form["vendedor"], 
+                                "Ciudad": ciudad_final_gen, 
+                                "Estado": "Emitido", 
+                                "Ruta_PDF": pdf_filepath
                             }
                             st.session_state.historial_db.append(nuevo_registro)
                             guardar_historial(st.session_state.historial_db)
@@ -1075,16 +1076,17 @@ def tab_configuracion_diseno():
                         st.rerun()
                         
             with c_img2:
-                st.markdown("<p style='font-weight:600; color:#4E008E; margin-bottom:15px; font-size:0.85rem; letter-spacing:0.5px;'>PLANTILLA FONDO (PDF)</p>", unsafe_allow_html=True)
+                st.markdown("<p style='font-weight:600; color:#4E008E; margin-bottom:15px; font-size:0.85rem; letter-spacing:0.5px;'>PLANTILLA FONDO (IMAGEN)</p>", unsafe_allow_html=True)
                 ruta_p = obtener_ruta_plantilla(emp_visual)
                 if os.path.exists(ruta_p):
                     st.markdown('<div style="height: 140px; display: flex; align-items: center; justify-content: center; border: 2px solid #10B981; border-radius: 12px; margin-bottom: 15px; color: #10B981; font-weight: bold;">Plantilla Activa ✓</div>', unsafe_allow_html=True)
                     if st.button("Eliminar Plantilla", key="dp_btn", type="secondary", use_container_width=True): os.remove(ruta_p); st.rerun()
                 else:
-                    st.markdown('<div style="height: 140px; display: flex; align-items: center; justify-content: center; border: 2px dashed #E2E8F0; border-radius: 12px; margin-bottom: 15px; color: #94A3B8; text-align:center;">Fondo en blanco<br>(Generación clásica)</div>', unsafe_allow_html=True)
-                    file_p = st.file_uploader("Subir diseño en .pdf", type=["pdf"], key="up_p_btn", label_visibility="collapsed")
+                    st.markdown('<div style="height: 140px; display: flex; align-items: center; justify-content: center; border: 2px dashed #E2E8F0; border-radius: 12px; margin-bottom: 15px; color: #94A3B8; text-align:center;">Fondo en blanco<br>(Sube tu diseño A4 en JPG/PNG)</div>', unsafe_allow_html=True)
+                    file_p = st.file_uploader("Subir diseño en IMAGEN (.jpg, .png)", type=["png", "jpg", "jpeg"], key="up_p_btn", label_visibility="collapsed")
                     if file_p and st.button("Guardar Plantilla", key="sp_p_btn", type="primary", use_container_width=True):
-                        with open(ruta_p, "wb") as f: f.write(file_p.getbuffer())
+                        img = Image.open(file_p).convert("RGB")
+                        img.save(obtener_ruta_plantilla(emp_visual), "JPEG")
                         st.rerun()
                         
             with c_img3:
@@ -1312,7 +1314,7 @@ def tab_historial_general():
     if st.session_state.rol == "administrador":
         historial_filtrado = st.session_state.historial_db
     else:
-        historial_filtrado = [c for c in st.session_state.historial_db if limpiar_texto_empresa(c.get("Emisor")) in emisor_empresas_norm]
+        historial_filtrado = [c for c in st.session_state.historial_db if limpiar_texto_empresa(c.get("Empresa_Emisora", c.get("Emisor", ""))) in emisor_empresas_norm]
 
     rechazadas_filtradas = [s for s in st.session_state.solicitudes if s['estado'] == 'Rechazado' and puede_ver_solicitud(s)]
 
@@ -1322,35 +1324,37 @@ def tab_historial_general():
             is_admin = (st.session_state.rol == "administrador")
             
             if is_admin:
-                c1, c2, c3, c4, c5, c6, c7 = st.columns([2, 3, 2, 3, 2, 2, 2])
-                c7.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>ACCIÓN</span>", unsafe_allow_html=True)
+                c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.5, 2.5, 2, 3, 1.5, 1.5, 1.5, 1.5])
+                c8.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>ACCIÓN</span>", unsafe_allow_html=True)
             else:
-                c1, c2, c3, c4, c5, c6 = st.columns([2, 3, 2, 3, 2, 2])
+                c1, c2, c3, c4, c5, c6, c7 = st.columns([1.5, 2.5, 2, 3, 1.5, 1.5, 1.5])
                 
-            c1.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>FECHA</span>", unsafe_allow_html=True)
-            c2.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>EMPRESA</span>", unsafe_allow_html=True)
-            c3.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>COMPROBANTE</span>", unsafe_allow_html=True)
-            c4.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>CLIENTE</span>", unsafe_allow_html=True)
-            c5.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>VENDEDOR</span>", unsafe_allow_html=True)
-            c6.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.8rem; letter-spacing:0.5px;'>ARCHIVO</span>", unsafe_allow_html=True)
+            c1.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>FECHA</span>", unsafe_allow_html=True)
+            c2.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>EMPRESA</span>", unsafe_allow_html=True)
+            c3.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>COMPROBANTE</span>", unsafe_allow_html=True)
+            c4.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>CLIENTE</span>", unsafe_allow_html=True)
+            c5.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>VENDEDOR</span>", unsafe_allow_html=True)
+            c6.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>EMISOR</span>", unsafe_allow_html=True)
+            c7.markdown("<span style='color:#94A3B8; font-weight:600; font-size:0.75rem; letter-spacing:0.5px;'>ARCHIVO</span>", unsafe_allow_html=True)
             st.markdown("<hr style='margin: 10px 0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
             
             for cert in reversed(historial_filtrado):
                 if is_admin:
-                    c1, c2, c3, c4, c5, c6, c7 = st.columns([2, 3, 2, 3, 2, 2, 2], vertical_alignment="center")
+                    c1, c2, c3, c4, c5, c6, c7, c8 = st.columns([1.5, 2.5, 2, 3, 1.5, 1.5, 1.5, 1.5], vertical_alignment="center")
                 else:
-                    c1, c2, c3, c4, c5, c6 = st.columns([2, 3, 2, 3, 2, 2], vertical_alignment="center")
+                    c1, c2, c3, c4, c5, c6, c7 = st.columns([1.5, 2.5, 2, 3, 1.5, 1.5, 1.5], vertical_alignment="center")
                     
                 c1.write(cert["Fecha"])
-                c2.write(cert.get("Emisor", ""))
+                c2.write(cert.get("Empresa_Emisora", cert.get("Emisor", "")))
                 c3.write(cert["Comprobante"])
                 c4.write(cert["Cliente"])
                 c5.write(cert.get("Vendedor", ""))
+                c6.write(cert.get("Usuario_Emisor", "Admin")) 
                 
                 ruta = cert.get("Ruta_PDF")
                 if ruta and os.path.exists(ruta):
                     with open(ruta, "rb") as f:
-                        c6.download_button(
+                        c7.download_button(
                             label="Descargar", 
                             data=f.read(), 
                             file_name=os.path.basename(ruta), 
@@ -1360,10 +1364,10 @@ def tab_historial_general():
                             use_container_width=True
                         )
                 else:
-                    c6.markdown("<span style='color:#94A3B8;'>No disp.</span>", unsafe_allow_html=True)
+                    c7.markdown("<span style='color:#94A3B8;'>No disp.</span>", unsafe_allow_html=True)
                     
                 if is_admin:
-                    if c7.button("Eliminar", key=f"del_cert_{cert['N_Cert']}", type="secondary", use_container_width=True):
+                    if c8.button("Eliminar", key=f"del_cert_{cert['N_Cert']}", type="secondary", use_container_width=True):
                         st.session_state.historial_db = [c for c in st.session_state.historial_db if c['N_Cert'] != cert['N_Cert']]
                         guardar_historial(st.session_state.historial_db)
                         if ruta and os.path.exists(ruta):
@@ -1567,7 +1571,7 @@ def vista_verificacion_publica():
                 for cert in st.session_state.historial_db:
                     doc_db = re.sub(r'[^0-9]', '', str(cert.get("Documento", "")))
                     comp_db = limpiar_texto_buscador(cert.get("Comprobante", ""))
-                    emp_db = limpiar_texto_buscador(cert.get("Emisor", ""))
+                    emp_db = limpiar_texto_buscador(cert.get("Empresa_Emisora", cert.get("Emisor", "")))
                     
                     if comp_db == comp_in and emp_db == emp_in and doc_db == doc_in:
                         encontrado = cert
@@ -1589,7 +1593,7 @@ def vista_verificacion_publica():
                     c_d1.markdown(f"**{encontrado.get('N_Cert', '')}**")
                     c_d2.write(encontrado.get("Fecha", ""))
                     c_d3.write(encontrado.get("Vendedor", ""))
-                    c_d4.write(encontrado.get("Emisor", ""))
+                    c_d4.write(encontrado.get("Empresa_Emisora", encontrado.get("Emisor", "")))
                     
                     ruta = encontrado.get("Ruta_PDF")
                     if ruta and os.path.exists(ruta):
@@ -1613,7 +1617,7 @@ def vista_verificacion_publica():
 if not st.session_state.logueado:
     st.markdown("""
         <div class="top-navbar-bg"></div>
-        <div class="navbar-logo">SICER <span>IA v5.5</span></div>
+        <div class="navbar-logo">SICER <span>IA v6.1</span></div>
     """, unsafe_allow_html=True)
     
     if st.session_state.get('modo_vista', 'login') == 'login':
@@ -1625,7 +1629,7 @@ if not st.session_state.logueado:
             st.markdown("""
                 <div style='text-align: center; margin-bottom: 30px;'>
                     <h1 style='color: #1E293B; font-weight: 900; font-style: italic; font-size: 3.5rem; letter-spacing: -1.5px; margin:0;'>
-                        SICER <span style='background: linear-gradient(135deg, #4E008E 0%, #6A0DAD 100%); color: white; padding: 4px 15px; border-radius: 99px; font-size: 1.4rem; font-style: normal; vertical-align: middle; margin-left:10px;'>IA v5.5</span>
+                        SICER <span style='background: linear-gradient(135deg, #4E008E 0%, #6A0DAD 100%); color: white; padding: 4px 15px; border-radius: 99px; font-size: 1.4rem; font-style: normal; vertical-align: middle; margin-left:10px;'>IA v6.1</span>
                     </h1>
                     <p style='color: #64748B; font-size: 1.1rem; margin-top: 10px; font-weight: 500;'>Sistema Inteligente de Certificados</p>
                 </div>
@@ -1674,7 +1678,7 @@ if not st.session_state.logueado:
 else:
     st.markdown("""
         <div class="top-navbar-bg"></div>
-        <div class="navbar-logo">SICER <span>IA v5.5</span></div>
+        <div class="navbar-logo">SICER <span>IA v6.1</span></div>
     """, unsafe_allow_html=True)
     
     st.markdown('<span class="logout-anchor"></span>', unsafe_allow_html=True)
